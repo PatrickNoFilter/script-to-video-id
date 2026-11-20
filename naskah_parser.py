@@ -24,6 +24,8 @@ def clean_text(text):
     text = text.replace("**", "").replace("__", "").replace("`", "")
     text = text.replace("*", "")  # emphasis / italic markers
     text = re.sub(r"<[^>]+>", "", text)  # HTML tags
+    text = re.sub(r"(?m)^\s*>\s?", "", text)  # blockquote markers
+    text = text.replace('"', "").replace("\u201c", "").replace("\u201d", "")
     text = re.sub(r"Voiceover\s*\(Narasi\)\s*:", " ", text, flags=re.I)
     text = re.sub(r"Visual\s*Cue\s*:|Text\s*on\s*Screen\s*:", " ", text, flags=re.I)
     return re.sub(r"\s+", " ", text).strip()
@@ -94,8 +96,13 @@ def section_info(heading):
     else:
         prefix, title = rest, rest
     prefix = prefix.strip()
-    m = re.match(r"(BAB\s*\d+|INTRO|OUTRO)", prefix, re.I)
-    chapter = m.group(1).upper() if m else prefix.upper()[:26]
+    if re.search(r"\bINTRO\b", prefix, re.I):
+        chapter = "INTRO"
+    elif re.search(r"\bOUTRO\b", prefix, re.I):
+        chapter = "OUTRO"
+    else:
+        m = re.match(r"BAB\s*\d+", prefix, re.I)
+        chapter = m.group(0).upper() if m else prefix.upper()[:26]
     if not title or title == prefix:
         title = prefix
     return chapter, title
@@ -198,7 +205,9 @@ def parse_markdown(path, words_per_scene):
     for body in sections:
         heading, _, rest = body.partition("\n")
         chapter, title = section_info(heading)
-        m = re.search(r"\*\*Voiceover\s*\(Narasi\)\s*\*\*\s*:(.*?)(?=\n---|\Z)", rest, re.S)
+        marker = (r"\*\*(?:Voiceover\s*\(Narasi\)|Narasi\s*Presenter|Narasi|Voiceover)"
+                  r"\s*:?\s*\*\*\s*:?(.*?)(?=\n---|\Z)")
+        m = re.search(marker, rest, re.S | re.I)
         narration = clean_text(m.group(1) if m else "")
         if not narration.strip():
             narration = clean_text("\n".join(
@@ -264,3 +273,14 @@ def load_scenes(path, words_per_scene=38):
     if path.suffix.lower() == ".json":
         return parse_json(path)
     return parse_markdown(path, words_per_scene)
+
+
+def document_title(path):
+    """Take the first H1 of a markdown naskah as the video's footer title."""
+    path = Path(path)
+    if path.suffix.lower() == ".json":
+        return "VIDEO EDUKASI"
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("# "):
+            return clean_text(line[2:].strip())[:64]
+    return "VIDEO EDUKASI"

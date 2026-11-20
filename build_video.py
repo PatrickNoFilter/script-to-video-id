@@ -59,7 +59,7 @@ C = {
 # ---------------------------------------------------------------------------
 import argparse
 
-from naskah_parser import load_scenes
+from naskah_parser import document_title, load_scenes
 
 _ap = argparse.ArgumentParser(description="Naskah -> video naratif MP4")
 _ap.add_argument("--naskah", default=str(ROOT / "examples" / "naskah-contoh.md"),
@@ -76,6 +76,7 @@ VOICE = _args.voice or VOICE
 if _args.music:
     MUSIC = Path(_args.music).resolve()
 SCENES = load_scenes(_args.naskah, _args.words_per_scene)
+DOC_TITLE = document_title(_args.naskah).upper()
 if not SCENES:
     raise SystemExit(f"Tidak ada scene yang terbaca dari {_args.naskah}")
 
@@ -163,7 +164,7 @@ def draw_header(draw, scene, idx, total):
     draw.text((92, 63), label, font=font, fill=a)
     draw.text((W - 90, 63), f"{idx+1:02d} / {total:02d}", font=F(26, True), fill=C["muted"], anchor="ra")
     # footer
-    draw.text((72, H - 54), "DILEMA PENJURUSAN SMA · Video Edukasi", font=F(22), fill=C["dim"])
+    draw.text((72, H - 54), DOC_TITLE + " · Video Edukasi", font=F(22), fill=C["dim"])
 
 
 def draw_headline(draw, scene):
