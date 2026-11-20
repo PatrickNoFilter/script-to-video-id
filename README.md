@@ -12,6 +12,8 @@ Contoh yang disertakan adalah naskah video *"Dilema Penjurusan SMA: IPA, IPS & B
 - Background music opsional dengan **loop crossfade sample-exact** (tidak terdengar sambungannya) + auto-duck saat narasi berbicara.
 - Tanpa subtitle secara default; fokus ke teks di layar yang sudah ada di slide.
 - Output H.264/AAC MP4, 25 fps.
+- **Tidak memakai aplikasi editor video eksternal** (termasuk Concat) dan tidak butuh akun/API berbayar. Hanya Python + ffmpeg.
+  Catatan: kata `concat` di kode merujuk ke *ffmpeg concat demuxer* (`-f concat`) untuk menggabungkan gambar dan audio, bukan aplikasi Concat.
 
 ## Cara kerja
 
