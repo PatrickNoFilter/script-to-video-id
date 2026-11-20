@@ -86,10 +86,64 @@ def parse_directive(comment):
     return {k: v.strip("\"'") for k, v in pairs}
 
 
+HEADING_RE = re.compile(r"(?m)^(#{2,6})[ \t]+(.+?)[ \t]*$")
+NARRATION_HEADING_RE = re.compile(r"voice[\s-]*over|narasi|narration", re.I)
+MARKER_RE = re.compile(
+    r"(?:\*\*)?(?:Voiceover\s*\(Narasi\)|Narasi\s*Presenter|Narasi|Voiceover)"
+    r"\s*:\s*(?:\*\*)?\s*(.*?)(?=\n\s*---|\Z)",
+    re.S | re.I,
+)
+
+
+def blockquote_text(body):
+    """Collect consecutive '> ' lines (including blank '>' separators)."""
+    kept = []
+    for ln in body.splitlines():
+        s = ln.strip()
+        if s.startswith(">"):
+            s = re.sub(r"^(?:>\s*)+", "", s).strip()
+            if s or (kept and kept[-1]):
+                kept.append(s)
+        elif not s and kept and kept[-1]:
+            kept.append("")
+    while kept and not kept[0]:
+        kept.pop(0)
+    while kept and not kept[-1]:
+        kept.pop()
+    return "\n".join(kept)
+
+
+def plain_fallback(body):
+    """Old fallback: prose lines that are not headings/tables/lists/quotes."""
+    return "\n".join(
+        ln for ln in body.splitlines()
+        if ln.strip() and not ln.lstrip().startswith(("#", "|", "**", "*", "-", "<!--", ">"))
+    )
+
+
+def block_narration(heading, body):
+    """Find spoken text in one heading block, regardless of naskah style."""
+    if NARRATION_HEADING_RE.search(heading):
+        q = blockquote_text(body)
+        if q:
+            return clean_text(q)
+    m = MARKER_RE.search(body)
+    if m:
+        txt = clean_text(m.group(1))
+        if txt:
+            return txt
+    q = blockquote_text(body)
+    if q:
+        return clean_text(q)
+    return clean_text(plain_fallback(body))
+
+
 def section_info(heading):
     """'### [00:00 - 01:00] BAB 2: Data PISA & INOVASI' -> ('BAB 2', 'Data PISA & INOVASI')."""
-    rest = re.sub(r"^###\s*", "", heading).strip()
+    rest = re.sub(r"^#{2,6}\s*", "", heading).strip()
     rest = re.sub(r"^\[[^\]]*\]\s*", "", rest).strip()
+    rest = re.sub(r"^[^\w]+", "", rest).strip()  # emoji / decorative prefix
+    rest = re.sub(r"[\(（]?\s*\d{1,2}:\d{2}\s*[–—-]\s*\d{1,2}:\d{2}\s*\)?\s*$", "", rest).strip()
     if ":" in rest:
         prefix, title = rest.split(":", 1)
         title = title.strip()
@@ -199,36 +253,63 @@ def clean_headline(text, fallback):
 
 
 def parse_markdown(path, words_per_scene):
+    """Parse any markdown naskah, no matter which heading level holds narration.
+
+    Supports: '**Voiceover (Narasi)**:' prose, a 'Voiceover Narasi' heading
+    with '> ' blockquotes, plain blockquotes, HTML scene directives, and
+    heading prefixes such as emoji or '[00:00 - 01:00]' time ranges.
+    """
     raw = Path(path).read_text(encoding="utf-8")
-    sections = re.split(r"(?m)^###\s+", raw)[1:]
+    blocks = []
+    matches = list(HEADING_RE.finditer(raw))
+    for j, m in enumerate(matches):
+        start = m.end()
+        end = matches[j + 1].start() if j + 1 < len(matches) else len(raw)
+        heading = m.group(2).strip()
+        body = raw[start:end]
+        blocks.append({
+            "level": len(m.group(1)),
+            "heading": heading,
+            "body": body,
+            "narr": block_narration(heading, body),
+        })
+
+    narrating = [b for b in blocks if b["narr"].strip()]
+    if not narrating:
+        return []
+    # The deepest heading level that actually carries spoken text defines a scene.
+    use_level = max(b["level"] for b in narrating)
+
     scenes = []
-    for body in sections:
-        heading, _, rest = body.partition("\n")
-        chapter, title = section_info(heading)
-        marker = (r"\*\*(?:Voiceover\s*\(Narasi\)|Narasi\s*Presenter|Narasi|Voiceover)"
-                  r"\s*:?\s*\*\*\s*:?(.*?)(?=\n---|\Z)")
-        m = re.search(marker, rest, re.S | re.I)
-        narration = clean_text(m.group(1) if m else "")
-        if not narration.strip():
-            narration = clean_text("\n".join(
-                ln for ln in rest.splitlines()
-                if ln.strip() and not ln.lstrip().startswith(("#", "|", "**", "*", "-", "<!--", ">"))
-            ))
+    for idx, b in enumerate(blocks):
+        if b["level"] != use_level or not b["narr"].strip():
+            continue
+        ancestor = next((p for p in reversed(blocks[:idx])
+                         if p["level"] < use_level), None)
+        ctx = [b["body"]] + ([ancestor["body"]] if ancestor else [])
+        own = b["heading"]
+        heading_for_meta = ancestor["heading"] if ancestor and NARRATION_HEADING_RE.search(own) else own
+        chapter, title = section_info(heading_for_meta)
+        narration = b["narr"]
         chunks = chunk_text(narration, words_per_scene)
         if not chunks:
             continue
 
-        directives = [parse_directive(c) for c in re.findall(r"<!--(.*?)-->", rest, re.S)]
+        comments = []
+        for piece in ctx:
+            comments += re.findall(r"<!--(.*?)-->", piece, re.S)
+        directives = [parse_directive(c) for c in comments]
         directives = [d for d in directives if d]
         if directives and len(directives) > len(chunks):
             chunks = chunk_to_count(narration, len(directives))
 
-        hint_m = re.search(r"(?:\*Text on Screen\*|Text on Screen)\s*:\s*(.+)", rest)
+        hint_src = " ".join(ctx)
+        hint_m = re.search(r"Text[\s-]*On?[\s-]*Screen\s*\*{0,2}\s*:\s*(.+)",
+                           hint_src, re.I)
         hint = clean_headline(clean_text(hint_m.group(1) if hint_m else ""), chunks[0])
 
         for i, chunk in enumerate(chunks):
-            d = directives[i] if i < len(directives) else None
-            d = dict(d or {})
+            d = dict(directives[i] if i < len(directives) else None or {})
             headline = clean_headline(d.pop("headline", "" if i else hint), chunk)
             sub = d.pop("sub", "")
             accent = d.pop("accent", ACCENT_CYCLE.get(chapter, "teal"))
