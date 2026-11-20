@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Build a narrated explainer MP4 from naskah-youtube-pendidikan.md.
+"""Build a narrated explainer MP4 from ANY markdown naskah or JSON scene list.
 
-Pipeline: Edge-TTS (id-ID) -> Pillow slides -> ffmpeg concat.
-Inspired by open-source script-to-video pipelines (faceless-video-pipeline,
-Automated-Explainer-Video-Generator) but tailored for Indonesian content.
+Pipeline: naskah -> scene parser -> Edge-TTS (id-ID) -> Pillow slides -> ffmpeg.
+See naskah_parser.py for the supported markdown structure and visual directives.
 """
 import asyncio
 import os
@@ -56,224 +55,29 @@ C = {
 
 
 # ---------------------------------------------------------------------------
-# Source sentences (verbatim from the naskah)
+# Scene source: any markdown naskah or JSON scene list
 # ---------------------------------------------------------------------------
-SECTIONS = [
-    [  # 0 INTRO
-        "Belakangan ini, dunia pendidikan Indonesia kembali dihangatkan oleh perdebatan yang membuat gelisah banyak pihak: apakah penjurusan kaku IPA, IPS, dan Bahasa di SMA perlu dikembalikan seperti dulu?",
-        "Di satu sisi, banyak siswa dan orang tua merasa kebingungan saat menentukan mata pelajaran pilihan di Kurikulum Merdeka, ditambah sekolah yang pusing mengurus jadwal kelas.",
-        "Di sisi lain, mengembalikan penjurusan kaku berisiko membuat kita melangkah mundur ke era pengkotakan siswa.",
-        "Lantas, mengapa kegelisahan ini muncul?",
-        "Bagaimana data PISA memetakan kemampuan siswa kita dibanding Singapura dan Vietnam?",
-        "Dan apa solusi kompromi yang bisa menyelesaikan masalah operasional sekolah?",
-        "Mari kita bedah data dan faktanya!",
-    ],
-    [  # 1 BAB 1
-        "Secara resmi, Kemendikbudristek menghapuskan penjurusan kaku IPA, IPS, dan Bahasa melalui Kepmendikbudristek Nomor 56 Tahun 2022.",
-        "Tujuannya mulia: memberikan kebebasan bagi siswa untuk memilih kombinasi mata pelajaran sesuai minat dan cita-cita karirnya.",
-        "Namun, dalam praktik di lapangan, kebebasan tanpa batas ini menabrak dua tembok besar:",
-        "Pertama, keterbatasan operasional sekolah.",
-        "Ketika setiap siswa dalam satu angkatan memiliki kombinasi pilihan mata pelajaran yang berbeda-beda, sekolah harus mengelola puluhan variasi jadwal individu atau moving class.",
-        "Hal ini berbenturan langsung dengan keterbatasan jumlah ruang kelas paralel serta alokasi jam mengajar harian guru.",
-        "Kedua, ketidakpastian rute perguruan tinggi.",
-        "Tanpa arahan yang terstruktur, siswa dan orang tua khawatir kombinasi mata pelajaran pilihan yang diambil di kelas 11 dan 12 justru tidak linier dengan kualifikasi pendaftaran jalur Seleksi Nasional Berdasarkan Prestasi (SNBP) maupun SNBT di perguruan tinggi negeri.",
-    ],
-    [  # 2 BAB 2
-        "Apakah mengembalikan Ujian Nasional dan penjurusan kaku otomatis menyelesaikan masalah?",
-        "Mari kita lihat data capaian internasional.",
-        "Berdasarkan hasil PISA 2022 yang dirilis OECD, skor literasi membaca Indonesia berada pada angka 359, matematika 366, dan sains 383.",
-        "Meskipun skor numerik mengalami penurunan akibat dampak pandemi, peringkat internasional Indonesia justru naik 5 hingga 6 posisi karena penurunan skor rerata global jauh lebih tajam.",
-        "Direktur Pendidikan OECD, Andreas Schleicher, bahkan memuji daya tahan sistem pendidikan Indonesia selama pandemi.",
-        "Namun, tantangan nyata terlihat jika kita membandingkan dengan negara tetangga.",
-        "Vietnam pada PISA 2022 mencatatkan skor sains 472, matematika 469, dan membaca 462.",
-        "Bahkan pada PISA 2018, skor sains Vietnam sempat menembus 543 poin.",
-        "Sementara itu, Singapura kokoh berada di peringkat pertama dunia dengan skor sains 560, matematika 563, dan membaca 535.",
-        "Data Harmonized Learning Outcomes dari Bank Dunia mempertegas selisih ini, di mana skor Indonesia berada di angka 383 sementara Vietnam mencapai 485.",
-        "Riset ilmiah menunjukkan bahwa kunci peningkatan mutu bukanlah ujian hafalan kaku.",
-        "Studi lembaga riset INOVASI membuktikan bahwa sekolah yang menerapkan penyederhanaan kurikulum berbasis materi esensial mengalami pemulihan hasil belajar dua hingga tiga bulan lebih cepat pasca-pandemi.",
-        "Pada sekolah dasar, rerata skor literasi meningkat dari 58,2 menjadi 74,3 dan numerasi dari 54,6 menjadi 71,8 setelah satu tahun implementasi kurikulum berfokus materi esensial.",
-    ],
-    [  # 3 BAB 3
-        "Guna menjembatani dilema antara kebebasan siswa dan keterbatasan fasilitas sekolah, banyak tim pengembang kurikulum SMA di Indonesia mengambil solusi kompromi jalan tengah: menyederhanakan pilihan mata pelajaran menjadi 3 Paket Menu Terarah:",
-        "Paket pertama adalah Paket STEM (Science, Technology, Engineering, & Mathematics).",
-        "Paket ini menggabungkan Fisika, Kimia, Biologi, Matematika Lanjut, dan Informatika untuk menyiapkan siswa ke jurusan Teknik, Kedokteran, dan Data Science.",
-        "Istilah STEM ini pertama kali dicetuskan secara resmi oleh Dr. Judith Ramaley di National Science Foundation Amerika Serikat pada tahun 2001.",
-        "Paket kedua adalah Paket Sosio-Teknologi.",
-        "Paket hybrid ini memadukan ilmu komputasi dan matematika dengan Ekonomi serta Sosiologi.",
-        "Paket ini menjawab kebutuhan bidang Fintech, Business Analytics, dan Digital Marketing.",
-        "Akar konsep Sosio-Teknis ini berasal dari riset klasik Eric Trist dan Ken Bamforth di Tavistock Institute pada tahun 1951.",
-        "Paket ketiga adalah Paket Humaniora, Sosial, & Budaya.",
-        "Berfokus pada Sosiologi, Geografi, Antropologi, dan Bahasa Lanjut untuk rute Hukum, Hubungan Internasional, dan Komunikasi.",
-        "Konsep ini berakar dari tradisi filsafat studia humanitatis sejak zaman Cicero dan era Renaisans.",
-        "Dengan mengelompokkan pilihan ke dalam 3 paket terarah ini, sekolah dapat menghemat penggunaan ruang kelas dan mengatur jam mengajar guru secara efisien, sementara siswa mendapatkan kepastian rute menuju perguruan tinggi.",
-    ],
-    [  # 4 BAB 4
-        "Bagaimana dengan jam sekolah dan sistem di negara tetangga?",
-        "Di Singapura, sekolah menerapkan 5 hari sekolah (Senin sampai Jumat) dengan jam masuk paling awal pukul 07.30 pagi.",
-        "Durasi belajar SD sekitar 5 jam dan SMP/SMA 6 jam per hari.",
-        "Namun, siswa sekolah menengah di Singapura memiliki kegiatan ekstrakurikuler wajib atau CCA yang membuat mereka sering berada di sekolah hingga pukul 17.00 sore.",
-        "Di tingkat prapengurusan tinggi (Junior College), Singapura tidak membagi siswa ke jurusan IPA/IPS kaku, melainkan menggunakan sistem kedalaman subjek H1, H2, dan H3.",
-        "Yang menarik, Singapura menerapkan aturan contrasting subject: siswa yang mengambil mayoritas subjek Sains wajib mengambil minimal satu subjek dari rumpun Humaniora atau Ekonomi (dan sebaliknya).",
-        "Hal ini memastikan lulusan memiliki keseimbangan logika sains dan pemahaman sosial.",
-        "Di Indonesia, kebijakan hari sekolah sangat dinamis.",
-        "Di Jawa Tengah, jenjang SMA/SMK Negeri umumnya menerapkan 5 hari sekolah.",
-        "Namun, untuk jenjang SD dan SMP di Kota Salatiga, Pemerintah Kota menetapkan kembali sistem 6 hari sekolah mulai tahun 2026.",
-        "Langkah ini diambil agar jam belajar harian siswa selesai lebih awal di siang hari, sehingga siswa dapat mengikuti kegiatan pendidikan karakter sore seperti TPQ atau Madrasah Diniyah sekaligus mengurangi penggunaan gawai pada hari Sabtu.",
-    ],
-    [  # 5 OUTRO
-        "Kesimpulannya, daripada kita terjebak dalam perdebatan ekstrem antara kembali ke penjurusan kaku IPA/IPS lama atau bebas tanpa aturan yang membingungkan, penerapan 3 Paket Pilihan Terarah adalah langkah kompromi paling rasional bagi SMA di Indonesia saat ini.",
-        "Langkah ini menjaga semangat Kurikulum Merdeka dalam mengasah nalar kritis, sekaligus menyelesaikan hambatan nyata operasional sekolah di lapangan.",
-        "Bagaimana dengan sekolah kalian?",
-        "Apakah tempat kalian belajar sudah menerapkan sistem paket terarah, atau masih kebingungan mengatur jadwal?",
-        "Dan menurut kalian, lebih efektif 5 hari atau 6 hari sekolah?",
-        "Tuliskan pendapat dan pengalaman kalian di kolom komentar!",
-        "Jangan lupa klik like, share, dan subscribe agar tidak ketinggalan pembahasan edukasi berbasis data berikutnya.",
-        "Sampai jumpa di video selanjutnya!",
-    ],
-]
+import argparse
 
+from naskah_parser import load_scenes
 
-def S(sec, sents, chapter, title, headline, vis, sub=None, accent="teal"):
-    text = " ".join(SECTIONS[sec][i] for i in sents)
-    return dict(sec=sec, text=text, chapter=chapter, title=title,
-                headline=headline, sub=sub, accent=accent, vis=vis)
+_ap = argparse.ArgumentParser(description="Naskah -> video naratif MP4")
+_ap.add_argument("--naskah", default=str(ROOT / "examples" / "naskah-contoh.md"),
+                 help="File naskah .md atau daftar scene .json")
+_ap.add_argument("--output", default=None, help="Path MP4 hasil")
+_ap.add_argument("--voice", default=None, help="Suara Edge-TTS")
+_ap.add_argument("--music", default=None, help="Lagu background (opsional)")
+_ap.add_argument("--words-per-scene", type=int, default=38,
+                 help="Target kata per scene saat memotong narasi")
+_args = _ap.parse_args()
 
-
-SCENES = [
-    S(0, [0], "INTRO", "Kegelisahan Penjurusan SMA", "IPA, IPS & BAHASA\nDIKEMBALIKAN?",
-      ("hook", {"chips": ["IPA", "IPS", "BAHASA"]}), "Kurikulum Merdeka dalam dilema"),
-    S(0, [1], "INTRO", "Kegelisahan Penjurusan SMA", "SISWA BINGUNG,\nSEKOLAH PUSING",
-      ("split", {"items": [("SISWA & ORANG TUA", "Bingung memilih\nkombinasi mapel"),
-                           ("SEKOLAH", "Pusing mengatur\njadwal kelas")]}), accent="orange"),
-    S(0, [2], "INTRO", "Kegelisahan Penjurusan SMA", "RISIKO:\nPENGKOTAKAN SISWA",
-      ("card", {"tag": "DI SISI LAIN", "title": "Langkah Mundur?",
-                "bullets": ["Penjurusan kaku mengembalikan era pengkotakan siswa"]}), accent="red"),
-    S(0, [3, 4, 5, 6], "INTRO", "Kegelisahan Penjurusan SMA", "3 PERTANYAAN\nBESAR",
-      ("bullets", {"items": ["Mengapa kegelisahan ini muncul?",
-                             "Bagaimana data PISA memetakan kita vs Singapura & Vietnam?",
-                             "Apa solusi kompromi untuk sekolah?"]}),
-      "Mari kita bedah data dan faktanya!"),
-
-    S(1, [0, 1], "BAB 1", "Pengembalian IPA, IPS & Bahasa", "KEPMENDIKBUD\nNo. 56 / 2022",
-      ("stat", {"big": "56", "label": "Tahun 2022 · Penjurusan kaku dihapus",
-                "sub": "Kebebasan memilih kombinasi mapel sesuai minat & cita-cita"})),
-    S(1, [2], "BAB 1", "Pengembalian IPA, IPS & Bahasa", "DUA TEMBOK\nBESAR",
-      ("split", {"items": [("01", "Keterbatasan operasional sekolah"),
-                           ("02", "Ketidakpastian rute PTN")]}), accent="orange"),
-    S(1, [3, 4], "BAB 1", "Pengembalian IPA, IPS & Bahasa", "PULUHAN JADWAL\nINDIVIDU",
-      ("card", {"tag": "TEMBOK 1", "title": "Moving Class",
-                "bullets": ["Setiap siswa punya kombinasi mapel berbeda",
-                            "Sekolah kelola puluhan jadwal individu"]}), accent="orange"),
-    S(1, [5], "BAB 1", "Pengembalian IPA, IPS & Bahasa", "SUMBER DAYA\nTERBATAS",
-      ("split", {"items": [("RUANG", "Jumlah ruang kelas\nparalel terbatas"),
-                           ("WAKTU", "Alokasi jam mengajar\nharian guru terbatas")]}), accent="orange"),
-    S(1, [6, 7], "BAB 1", "Pengembalian IPA, IPS & Bahasa", "RUTE PTN\nTAK PASTI",
-      ("card", {"tag": "TEMBOK 2", "title": "SNBP / SNBT",
-                "bullets": ["Mapel kelas 11–12 belum tentu linier",
-                            "Siswa & orang tua khawatir"],
-                "foot": "Tanpa arahan yang terstruktur"}), accent="orange"),
-
-    S(2, [0, 1], "BAB 2", "Data PISA & INOVASI", "APAKAH UN, IPA, IPS & BAHASA\nMEMBERESKAN MASALAH?",
-      ("title", {"big": "?"}), "Mari kita lihat data capaian internasional", accent="blue"),
-    S(2, [2], "BAB 2", "Data PISA & INOVASI", "PISA 2022:\nINDONESIA",
-      ("chart", {"groups": [("Indonesia", "teal", [("Membaca", 359), ("Matematika", 366), ("Sains", 383)])],
-                 "foot": "Sumber: OECD, PISA 2022"}), accent="teal"),
-    S(2, [3], "BAB 2", "Data PISA & INOVASI", "PERINGKAT NAIK\n5–6 POSISI",
-      ("stat", {"big": "+5–6", "label": "posisi di peringkat internasional",
-                "sub": "Rerata skor global turun lebih tajam akibat pandemi"}), accent="teal"),
-    S(2, [4], "BAB 2", "Data PISA & INOVASI", "DAYA TAHAN SISTEM\nPENDIDIKAN",
-      ("quote", {"text": "Daya tahan sistem pendidikan Indonesia selama pandemi.",
-                 "by": "Andreas Schleicher · Direktur Pendidikan OECD"}), accent="teal"),
-    S(2, [5, 6, 7], "BAB 2", "Data PISA & INOVASI", "BANDINGKAN DENGAN\nNEGARA TETANGGA",
-      ("chart", {"groups": [("Indonesia", "teal", [("Membaca", 359), ("Matematika", 366), ("Sains", 383)]),
-                            ("Vietnam", "orange", [("Membaca", 462), ("Matematika", 469), ("Sains", 472)])],
-                 "foot": "Catatan: skor sains Vietnam PISA 2018 menembus 543 poin"}), accent="orange"),
-    S(2, [8, 9], "BAB 2", "Data PISA & INOVASI", "SINGAPURA KOKOH\nDI PERINGKAT #1",
-      ("chart", {"groups": [("Indonesia", "teal", [("Membaca", 359), ("Matematika", 366), ("Sains", 383)]),
-                            ("Vietnam", "orange", [("Membaca", 462), ("Matematika", 469), ("Sains", 472)]),
-                            ("Singapura", "blue", [("Membaca", 535), ("Matematika", 563), ("Sains", 560)])],
-                 "foot": "Harmonized Learning Outcomes (Bank Dunia): Indonesia 383 · Vietnam 485"}), accent="blue"),
-    S(2, [10, 11], "BAB 2", "Data PISA & INOVASI", "KUNCINYA BUKAN\nUJIAN HAFALAN",
-      ("card", {"tag": "TEMUAN INOVASI", "title": "Materi Esensial",
-                "bullets": ["Pemulihan hasil belajar 2–3 bulan lebih cepat",
-                            "Penyederhanaan kurikulum pasca-pandemi"],
-                "foot": "Riset lembaga INOVASI"}), accent="purple"),
-    S(2, [12], "BAB 2", "Data PISA & INOVASI", "LITERASI & NUMERASI\nSD MENINGKAT",
-      ("progress", {"rows": [("Literasi", 58.2, 74.3), ("Numerasi", 54.6, 71.8)],
-                    "foot": "Setelah 1 tahun kurikulum berfokus materi esensial"}), accent="purple"),
-
-    S(3, [0], "BAB 3", "Solusi Kompromi", "3 PAKET PILIHAN\nTERARAH",
-      ("cards", {"items": [("01", "STEM", "Sains & Teknologi", "blue"),
-                           ("02", "Sosio-Teknologi", "Komputasi + Ekonomi", "orange"),
-                           ("03", "Humaniora", "Sosial & Budaya", "purple")]}),
-      "Jalan tengah: kebebasan siswa + efisiensi sekolah"),
-    S(3, [1, 2], "BAB 3", "Solusi Kompromi", "PAKET STEM",
-      ("card", {"tag": "PAKET 01", "title": "STEM",
-                "bullets": ["Fisika · Kimia · Biologi", "Matematika Lanjut · Informatika",
-                            "Teknik · Kedokteran · Data Science"],
-                "foot": "Science · Technology · Engineering · Mathematics"}),
-      "Science · Technology · Engineering · Mathematics", accent="blue"),
-    S(3, [3], "BAB 3", "Solusi Kompromi", "RAMALEY · NSF · 2001",
-      ("stat", {"big": "2001", "label": "Istilah STEM dicetuskan resmi",
-                "sub": "Dr. Judith Ramaley · National Science Foundation, AS"}), accent="blue"),
-    S(3, [4, 5, 6], "BAB 3", "Solusi Kompromi", "PAKET SOSIO-\nTEKNOLOGI",
-      ("card", {"tag": "PAKET 02", "title": "Sosio-Teknologi",
-                "bullets": ["Komputasi + matematika", "Ekonomi + Sosiologi",
-                            "Fintech · Business Analytics · Digital Marketing"],
-                "foot": "Model hybrid"}), accent="orange"),
-    S(3, [7], "BAB 3", "Solusi Kompromi", "TRIST & BAMFORTH\n· 1951",
-      ("stat", {"big": "1951", "label": "Akar konsep Sosio-Teknis",
-                "sub": "Eric Trist & Ken Bamforth · Tavistock Institute"}), accent="orange"),
-    S(3, [8, 9], "BAB 3", "Solusi Kompromi", "PAKET HUMANIORA,\nSOSIAL & BUDAYA",
-      ("card", {"tag": "PAKET 03", "title": "Humaniora",
-                "bullets": ["Sosiologi · Geografi · Antropologi", "Bahasa Lanjut",
-                            "Hukum · Hubungan Internasional · Komunikasi"],
-                "foot": "Tradisi studia humanitatis sejak Cicero"}), accent="purple"),
-    S(3, [10, 11], "BAB 3", "Solusi Kompromi", "EFISIEN +\nKEPASTIAN RUTE",
-      ("split", {"items": [("SEKOLAH", "Hemat ruang kelas\n& jam mengajar guru"),
-                           ("SISWA", "Rute pasti menuju\nperguruan tinggi")]}), accent="teal"),
-
-    S(4, [0], "BAB 4", "Singapura & Jawa Tengah", "BAGAIMANA DENGAN\nJAM SEKOLAH?",
-      ("title", {"big": "?"}), "Singapura vs Indonesia", accent="blue"),
-    S(4, [1, 2], "BAB 4", "Singapura & Jawa Tengah", "SINGAPURA:\n5 HARI SEKOLAH",
-      ("card", {"tag": "SINGAPURA", "title": "Jadwal Belajar",
-                "bullets": ["Senin–Jumat, masuk dari pukul 07.30",
-                            "SD ±5 jam · SMP/SMA ±6 jam per hari"]}), accent="blue"),
-    S(4, [3], "BAB 4", "Singapura & Jawa Tengah", "CCA SAMPAI\nPUKUL 17.00",
-      ("stat", {"big": "17.00", "label": "Ekstrakurikuler wajib (CCA)",
-                "sub": "Siswa menengah sering di sekolah sampai sore"}), accent="blue"),
-    S(4, [4], "BAB 4", "Singapura & Jawa Tengah", "H1 · H2 · H3",
-      ("cards", {"items": [("H1", "Kedalaman dasar", "", "blue"),
-                           ("H2", "Kedalaman utama", "", "teal"),
-                           ("H3", "Kedalaman lanjut", "", "purple")]}),
-      "Junior College: tanpa jurusan IPA/IPS kaku", accent="blue"),
-    S(4, [5], "BAB 4", "Singapura & Jawa Tengah", "CONTRASTING\nSUBJECT",
-      ("split", {"items": [("MAYORITAS SAINS", "Wajib ambil minimal 1 mapel\nHumaniora atau Ekonomi"),
-                           ("MAYORITAS HUMANIORA", "Wajib ambil minimal 1 mapel\nSains (dan sebaliknya)")]}), accent="blue"),
-    S(4, [6], "BAB 4", "Singapura & Jawa Tengah", "SEIMBANG: LOGIKA\n+ PEMAHAMAN SOSIAL",
-      ("bullets", {"items": ["Nalar sains yang tajam", "Pemahaman sosial yang luas"]}), accent="teal"),
-    S(4, [7, 8], "BAB 4", "Singapura & Jawa Tengah", "JAWA TENGAH:\n5 HARI",
-      ("stat", {"big": "5", "label": "hari sekolah SMA/SMK Negeri",
-                "sub": "Kebijakan Pemprov Jawa Tengah"}), accent="teal"),
-    S(4, [9], "BAB 4", "Singapura & Jawa Tengah", "SALATIGA:\n6 HARI (2026)",
-      ("stat", {"big": "6", "label": "hari sekolah SD/SMP",
-                "sub": "Kebijakan Pemkot Salatiga mulai 2026"}), accent="orange"),
-    S(4, [10], "BAB 4", "Singapura & Jawa Tengah", "MADIN/TPQ SORE\n+ BATASI GAWAI",
-      ("bullets", {"items": ["Jam belajar selesai lebih awal di siang hari",
-                             "Kegiatan karakter sore: TPQ / Madrasah Diniyah",
-                             "Kurangi penggunaan gawai di hari Sabtu"]}), accent="orange"),
-
-    S(5, [0], "OUTRO", "Kesimpulan", "3 PAKET = JALAN TENGAH\nPALING RASIONAL",
-      ("bullets", {"items": ["Bukan kembali ke IPA, IPS & Bahasa kaku", "Bukan bebas tanpa aturan",
-                             "Solusi kompromi untuk SMA Indonesia"]}), accent="teal"),
-    S(5, [1], "OUTRO", "Kesimpulan", "NALAR KRITIS +\nOPERASIONAL",
-      ("split", {"items": [("KURIKULUM MERDEKA", "Asah nalar kritis siswa"),
-                           ("PRAKTIK SEKOLAH", "Selesaikan hambatan operasional")]}), accent="teal"),
-    S(5, [2, 3, 4], "OUTRO", "Kesimpulan", "5 ATAU 6 HARI?\nPAKET ATAU BEBAS?",
-      ("cta", {"chips": ["5 HARI", "6 HARI", "3 PAKET", "BEBAS"]}), accent="orange"),
-    S(5, [5, 6, 7], "OUTRO", "Kesimpulan", "SAMPAI JUMPA DI\nVIDEO SELANJUTNYA!",
-      ("cta", {"chips": ["KOMENTAR", "LIKE", "SHARE", "SUBSCRIBE"]}), accent="teal"),
-]
+OUT = Path(_args.output).resolve() if _args.output else OUT
+VOICE = _args.voice or VOICE
+if _args.music:
+    MUSIC = Path(_args.music).resolve()
+SCENES = load_scenes(_args.naskah, _args.words_per_scene)
+if not SCENES:
+    raise SystemExit(f"Tidak ada scene yang terbaca dari {_args.naskah}")
 
 
 # ---------------------------------------------------------------------------

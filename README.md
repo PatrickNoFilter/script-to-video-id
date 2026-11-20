@@ -1,8 +1,8 @@
 # script-to-video-id
 
-Pipeline sederhana untuk mengubah naskah video edukasi berbahasa Indonesia menjadi MP4 naratif: **naskah → 37 scene → Edge-TTS → slide Pillow → ffmpeg**. Cocok untuk video YouTube bertema edukasi/kebijakan dengan grafik data, kartu poin, dan perbandingan.
+Pipeline generik untuk mengubah **naskah apa pun** (Markdown atau JSON) menjadi MP4 naratif berbahasa Indonesia: **naskah → parser scene → Edge-TTS → slide Pillow → ffmpeg**. Jumlah scene tidak di-hardcode—pipeline memotong narasi otomatis sesuai panjang yang Anda tentukan. Cocok untuk video YouTube edukasi, kebijakan, tutorial, atau penjelasan data.
 
-Proyek ini adalah versi open-source dari pipeline yang dipakai untuk video *"Dilema Penjurusan SMA: IPA, IPS & Bahasa Kembali?"*.
+Contoh yang disertakan adalah naskah video *"Dilema Penjurusan SMA: IPA, IPS & Bahasa Kembali?"*.
 
 ## Fitur
 
@@ -16,10 +16,11 @@ Proyek ini adalah versi open-source dari pipeline yang dipakai untuk video *"Dil
 ## Cara kerja
 
 ```
-SCENES (di build_video.py)
-  ├─> Edge-TTS       -> audio per scene (.mp3)
-  ├─> Pillow         -> slide per scene (.png)
-  └─> ffmpeg         -> concat + mix musik -> output/video.mp4
+naskah (.md / .json)
+  └─> naskah_parser.py   -> daftar scene (teks + judul + visual)
+        ├─> Edge-TTS     -> audio per scene (.mp3)
+        ├─> Pillow       -> slide per scene (.png)
+        └─> ffmpeg       -> concat + ducking + loop musik -> MP4
 ```
 
 ## Instalasi
@@ -37,27 +38,90 @@ Butuh font Noto Sans di sistem (`/usr/share/fonts/truetype/noto/`). Di Debian/Ub
 ## Pemakaian
 
 ```bash
+# Pakai naskah contoh
 python build_video.py
+
+# Naskah Anda sendiri
+python build_video.py --naskah /path/naskah-saya.md --output output/video-saya.mp4
+
+# Naskah + musik + suara lain + scene lebih pendek
+python build_video.py \
+  --naskah /path/naskah-saya.md \
+  --music /path/lagu.m4a \
+  --voice id-ID-ArdiNeural \
+  --words-per-scene 28 \
+  --output output/video-saya.mp4
 ```
 
-Output default: `output/video.mp4`.
+### Opsi CLI
 
-### Opsi lewat environment variable
-
-| Variable | Default | Fungsi |
+| Opsi | Default | Fungsi |
 | :--- | :--- | :--- |
-| `VIDEO_OUT` | `output/video.mp4` | Path file MP4 hasil |
-| `VIDEO_WORK` | `.build/` | Folder sementara (audio + slide) |
-| `VIDEO_VOICE` | `id-ID-GadisNeural` | Suara Edge-TTS |
-| `VIDEO_MUSIC` | *(kosong)* | Path lagu untuk di-loop jadi background music |
+| `--naskah` | `examples/naskah-contoh.md` | File `.md` atau `.json` |
+| `--output` | `output/video.mp4` | Path MP4 hasil |
+| `--voice` | `id-ID-GadisNeural` | Suara Edge-TTS |
+| `--music` | *(kosong)* | Lagu background (di-loop otomatis) |
+| `--words-per-scene` | `38` | Target kata per scene |
 
-Contoh dengan musik:
+Env variable masih didukung sebagai fallback: `VIDEO_WORK` (folder sementara), dan nilai default untuk `VIDEO_OUT`, `VIDEO_VOICE`, `VIDEO_MUSIC`.
 
-```bash
-VIDEO_MUSIC="/path/ke/lagu.m4a" VIDEO_OUT="output/video-dengan-musik.mp4" python build_video.py
+Tanpa `--music` tetap menghasilkan video dengan narasi saja.
+
+## Format naskah
+
+Parser membaca Markdown dengan struktur ini:
+
+```markdown
+### [00:00 – 01:00] BAB 1: Judul Bab
+
+**Visual Cue**:
+* *Text on Screen*: "JUDUL DI LAYAR"
+
+**Voiceover (Narasi)**:
+Kalimat narasi pertama. Kalimat narasi kedua. Kalimat narasi ketiga.
+
+---
 ```
 
-Tanpa musik (default) tetap menghasilkan video dengan narasi saja.
+- Setiap `###` menjadi satu bab (`chapter` + `title`).
+- Teks setelah `**Voiceover (Narasi)**:` dipotong menjadi beberapa scene menurut `--words-per-scene`, dengan batas kalimat yang dijaga.
+- `*Text on Screen*` dipakai sebagai judul visual. Tanpa itu, judul diambil dari kalimat pertama.
+- Naskah tanpa marker `Voiceover` juga tetap jalan: semua paragraf non-metadata dibaca sebagai narasi.
+
+### Visual opsional (directive)
+
+Taruh komentar HTML sebelum sebuah scene untuk mengontrol tampilannya. Komentar ke-*n* berlaku untuk scene ke-*n* dalam bab tersebut:
+
+```markdown
+<!-- scene: type=stat big=56 label="Tahun 2022" accent=orange -->
+```
+
+Jumlah directive dalam satu bab juga menentukan jumlah scene: kalau ada 3 directive, narasi bab itu dibagi jadi 3 scene. Jenis `type` yang didukung: `hook`, `bullets`, `split`, `stat`, `card`, `quote`, `cta`, `title`, `cards`, `progress`, `chart`. Contoh:
+
+```markdown
+<!-- scene: type=split items="RUANG::Jumlah kelas terbatas|WAKTU::Jam guru terbatas" -->
+<!-- scene: type=chart subjects="Membaca,Matematika,Sains" groups="Indonesia:teal:359,366,383|Vietnam:orange:462,469,472" -->
+<!-- scene: type=progress items="Literasi:58.2:74.3|Numerasi:54.6:71.8" -->
+```
+
+Tanpa directive, scene otomatis memakai `bullets` (atau `quote` untuk narasi satu kalimat).
+
+### JSON scene list
+
+Alternatifnya, berikan file JSON berisi array scene:
+
+```json
+[
+  {
+    "text": "Narasi scene ini.",
+    "chapter": "BAB 1",
+    "title": "Judul Bab",
+    "headline": "JUDUL DI LAYAR",
+    "accent": "teal",
+    "vis": ["stat", {"big": "56", "label": "Tahun 2022", "sub": ""}]
+  }
+]
+```
 
 ## Audio: ducking & seamless loop
 
@@ -92,19 +156,22 @@ Empat detik akhir lagu di-crossfade dengan empat detik awalnya. Ujung loop berak
 
 ## Kustomisasi
 
-- **Teks & visual:** edit list `SCENES` di `build_video.py`. Tiap scene berisi `chapter`, `title`, `headline`, `sub`, `accent`, `vis`, dan kalimat narasi yang diambil dari `SECTIONS`.
-- **Narasi:** ubah kalimat di `SECTIONS` (diambil verbatim dari naskah contoh di `examples/`).
-- **Suara:** ganti `VIDEO_VOICE` atau `VOICE`. Lihat suara Indonesia: `edge-tts --list-voices | grep id-ID`.
-- **Warna/tipografi:** ubah dictionary `C` dan fungsi `F()`.
+- **Teks & visual:** edit file naskah `.md`/`.json` Anda—tidak perlu menyentuh kode Python.
+- **Aturan potong scene:** ubah `--words-per-scene` atau logika `chunk_text()` di `naskah_parser.py`.
+- **Jenis visual baru:** tambahkan fungsi `draw_*` di `build_video.py` dan daftarkan di peta `fn` pada `render_slide()`, lalu dukung `type` tersebut di `visual_from_directive()`.
+- **Suara:** ganti `--voice` / `VIDEO_VOICE`. Lihat suara Indonesia: `edge-tts --list-voices | grep id-ID`.
+- **Warna/tipografi:** ubah dictionary `C` dan fungsi `F()` di `build_video.py`.
 
 ## Struktur
 
 ```
 .
-├── build_video.py              # pipeline utama
+├── build_video.py              # renderer + assembler
+├── naskah_parser.py            # parser naskah -> scene (markdown/JSON)
 ├── requirements.txt
 ├── examples/
-│   ├── naskah-contoh.md        # naskah sumber
+│   ├── naskah-contoh.md        # naskah polos (auto scene)
+│   ├── naskah-dengan-visual.md # contoh directive visual
 │   └── youtube-metadata-contoh.txt  # judul, deskripsi, chapter, tag
 └── output/                     # hasil MP4 (di-gitignore)
 ```
