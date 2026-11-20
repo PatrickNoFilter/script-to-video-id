@@ -1,0 +1,11 @@
+.build/
+output/*
+!output/.gitkeep
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.mp3
+*.wav
+*.m4a
+.DS_Store
