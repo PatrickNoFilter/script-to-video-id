@@ -88,6 +88,7 @@ Kalimat narasi pertama. Kalimat narasi kedua. Kalimat narasi ketiga.
 - Setiap `###` menjadi satu bab (`chapter` + `title`).
 - Teks setelah `**Voiceover (Narasi)**:` dipotong menjadi beberapa scene menurut `--words-per-scene`, dengan batas kalimat yang dijaga.
 - `*Text on Screen*` dipakai sebagai judul visual. Tanpa itu, judul diambil dari kalimat pertama.
+- **Scene pertama selalu kartu "Judul Video & Hook"**: judul diambil dari `Judul`/`Judul Konten`/`Judul Video` atau H1, dan hook diambil dari kalimat pertama narasi. Tidak perlu membuatnya manual.
 - Naskah tanpa marker `Voiceover` juga tetap jalan: semua paragraf non-metadata dibaca sebagai narasi.
 
 ### Visual opsional (directive)

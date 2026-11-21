@@ -252,6 +252,29 @@ def clean_headline(text, fallback):
     return text
 
 
+def find_title(raw):
+    """YouTube title from metadata (Judul/Judul Konten) or the first H1."""
+    m = re.search(r"(?im)^\*{0,2}Judul(?:\s+(?:Utama\s+)?(?:Konten|Video))?\*{0,2}\s*:\s*(.+)", raw)
+    if not m:
+        m = re.search(r"(?m)^#\s+(.+)", raw)
+    return clean_text(m.group(1)).strip() if m else ""
+
+
+def apply_opening(scenes, raw):
+    """Make the first scene an unmistakable title + hook card."""
+    if not scenes:
+        return scenes
+    title = find_title(raw)
+    if not title:
+        return scenes
+    first = scenes[0]
+    first["headline"] = title
+    first["sub"] = split_sentences(first["text"])[0] if split_sentences(first["text"]) else ""
+    first["vis"] = ("opening", {})
+    first["is_opening"] = True
+    return scenes
+
+
 def parse_markdown(path, words_per_scene):
     """Parse any markdown naskah, no matter which heading level holds narration.
 
@@ -323,7 +346,7 @@ def parse_markdown(path, words_per_scene):
                 "accent": accent,
                 "vis": vis,
             })
-    return scenes
+    return apply_opening(scenes, raw)
 
 
 def parse_json(path):

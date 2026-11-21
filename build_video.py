@@ -350,12 +350,34 @@ def draw_cta(draw, img, scene, y):
         x += w + 30
 
 
+def draw_opening(draw, img, scene, y):
+    """Title card: the actual YouTube title + the hook question."""
+    a = rgb(scene["accent"])
+    draw.text((100, 250), "JUDUL VIDEO & HOOK", font=F(26, True), fill=a)
+    font, lines = fit(scene["headline"], 72, 44, W - 220, 3, bold=True)
+    ty = 310
+    for line in lines:
+        draw.text((100, ty), line, font=font, fill=C["text"])
+        ty += int(font.size * 1.12)
+    draw.rounded_rectangle([100, ty + 24, 440, ty + 34], radius=5, fill=a)
+    if scene.get("sub"):
+        sf, slines = fit(scene["sub"], 40, 28, W - 280, 3, bold=False)
+        ty += 80
+        for line in slines:
+            draw.text((105, ty), line, font=sf, fill=C["muted"])
+            ty += int(sf.size * 1.2)
+
+
 def render_slide(scene, idx, total, path):
     img = background(scene["accent"])
     d = ImageDraw.Draw(img)
     draw_header(d, scene, idx, total)
-    y = draw_headline(d, scene)
     typ = scene["vis"][0]
+    if typ == "opening":
+        draw_opening(d, img, scene, 0)
+        img.save(path)
+        return
+    y = draw_headline(d, scene)
     fn = {"hook": draw_hook, "bullets": draw_bullets, "split": draw_split,
           "stat": draw_stat, "card": draw_card, "chart": draw_chart,
           "progress": draw_progress, "cards": draw_cards, "quote": draw_quote,
